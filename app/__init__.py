@@ -1,0 +1,1 @@
+# FastAPI Cognitive Memory Application

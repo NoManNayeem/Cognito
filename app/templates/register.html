@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Cognito{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="text-center mb-0">Register</h3>
+                </div>
+                <div class="card-body p-4">
+                    <!-- Error Message -->
+                    <div id="errorMessage" class="alert alert-danger d-none" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <span id="errorText"></span>
+                    </div>
+                    
+                    <!-- Success Message -->
+                    <div id="successMessage" class="alert alert-success d-none" role="alert">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <span id="successText"></span>
+                    </div>
+                    
+                    <form id="registerForm" method="POST" action="/api/auth/register" novalidate>
+                        <div class="mb-3">
+                            <label for="username" class="form-label fw-semibold">Username</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-person-fill"></i>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="username" 
+                                    name="username" 
+                                    placeholder="Choose a username"
+                                    required
+                                    minlength="3"
+                                    maxlength="50"
+                                    pattern="[a-zA-Z0-9_]+"
+                                    autocomplete="username"
+                                >
+                                <div class="invalid-feedback">
+                                    Username must be 3-50 characters and contain only letters, numbers, and underscores.
+                                </div>
+                                <div class="valid-feedback">
+                                    Looks good!
+                                </div>
+                            </div>
+                            <small class="form-text text-muted">3-50 characters, letters, numbers, and underscores only</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label fw-semibold">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-lock-fill"></i>
+                                </span>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    id="password" 
+                                    name="password" 
+                                    placeholder="Create a password"
+                                    required
+                                    minlength="6"
+                                    autocomplete="new-password"
+                                >
+                                <button 
+                                    class="btn btn-outline-secondary" 
+                                    type="button" 
+                                    id="togglePassword"
+                                    aria-label="Toggle password visibility"
+                                >
+                                    <i class="bi bi-eye" id="togglePasswordIcon"></i>
+                                </button>
+                                <div class="invalid-feedback">
+                                    Password must be at least 6 characters long.
+                                </div>
+                            </div>
+                            <div class="password-strength mt-2">
+                                <small class="text-muted">Password strength: </small>
+                                <span id="passwordStrength" class="badge bg-secondary">Weak</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label fw-semibold">Confirm Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-lock-fill"></i>
+                                </span>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    id="confirmPassword" 
+                                    name="confirmPassword" 
+                                    placeholder="Confirm your password"
+                                    required
+                                    autocomplete="new-password"
+                                >
+                                <button 
+                                    class="btn btn-outline-secondary" 
+                                    type="button" 
+                                    id="toggleConfirmPassword"
+                                    aria-label="Toggle password visibility"
+                                >
+                                    <i class="bi bi-eye" id="toggleConfirmPasswordIcon"></i>
+                                </button>
+                                <div class="invalid-feedback" id="confirmPasswordFeedback">
+                                    Passwords do not match.
+                                </div>
+                                <div class="valid-feedback">
+                                    Passwords match!
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                                <span class="spinner-border spinner-border-sm d-none me-2" id="submitSpinner" role="status" aria-hidden="true"></span>
+                                <span id="submitText">Register</span>
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div class="alert alert-info" role="alert">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        <small><strong>Note:</strong> Your account will be inactive by default. Please ask an admin to activate your account after registration.</small>
+                    </div>
+                    
+                    <div class="text-center mt-3">
+                        <p class="mb-0">Already have an account? <a href="/login" class="text-decoration-none">Login here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Password toggle functionality
+function setupPasswordToggle(toggleId, inputId, iconId) {
+    const toggle = document.getElementById(toggleId);
+    const input = document.getElementById(inputId);
+    const icon = document.getElementById(iconId);
+    
+    toggle.addEventListener('click', function() {
+        const type = input.getAttribute('type') === 'password' ? 'text' : 'password';
+        input.setAttribute('type', type);
+        
+        if (type === 'password') {
+            icon.classList.remove('bi-eye-slash');
+            icon.classList.add('bi-eye');
+        } else {
+            icon.classList.remove('bi-eye');
+            icon.classList.add('bi-eye-slash');
+        }
+    });
+}
+
+setupPasswordToggle('togglePassword', 'password', 'togglePasswordIcon');
+setupPasswordToggle('toggleConfirmPassword', 'confirmPassword', 'toggleConfirmPasswordIcon');
+
+// Password strength checker
+const passwordInput = document.getElementById('password');
+const passwordStrength = document.getElementById('passwordStrength');
+
+passwordInput.addEventListener('input', function() {
+    const password = passwordInput.value;
+    let strength = 'Weak';
+    let badgeClass = 'bg-danger';
+    
+    if (password.length === 0) {
+        strength = 'Weak';
+        badgeClass = 'bg-secondary';
+    } else if (password.length < 6) {
+        strength = 'Too Short';
+        badgeClass = 'bg-danger';
+    } else if (password.length < 8) {
+        strength = 'Weak';
+        badgeClass = 'bg-warning';
+    } else if (password.length < 12) {
+        // Check for complexity
+        const hasUpper = /[A-Z]/.test(password);
+        const hasLower = /[a-z]/.test(password);
+        const hasNumber = /[0-9]/.test(password);
+        const hasSpecial = /[^A-Za-z0-9]/.test(password);
+        
+        const complexity = [hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length;
+        
+        if (complexity >= 3) {
+            strength = 'Strong';
+            badgeClass = 'bg-success';
+        } else {
+            strength = 'Medium';
+            badgeClass = 'bg-info';
+        }
+    } else {
+        strength = 'Very Strong';
+        badgeClass = 'bg-success';
+    }
+    
+    passwordStrength.textContent = strength;
+    passwordStrength.className = 'badge ' + badgeClass;
+});
+
+// Password match validation
+const confirmPasswordInput = document.getElementById('confirmPassword');
+const confirmPasswordFeedback = document.getElementById('confirmPasswordFeedback');
+
+function validatePasswordMatch() {
+    const password = passwordInput.value;
+    const confirmPassword = confirmPasswordInput.value;
+    
+    if (confirmPassword.length === 0) {
+        confirmPasswordInput.classList.remove('is-valid', 'is-invalid');
+        return;
+    }
+    
+    if (password === confirmPassword) {
+        confirmPasswordInput.classList.remove('is-invalid');
+        confirmPasswordInput.classList.add('is-valid');
+        confirmPasswordFeedback.textContent = '';
+    } else {
+        confirmPasswordInput.classList.remove('is-valid');
+        confirmPasswordInput.classList.add('is-invalid');
+        confirmPasswordFeedback.textContent = 'Passwords do not match.';
+    }
+}
+
+passwordInput.addEventListener('input', validatePasswordMatch);
+confirmPasswordInput.addEventListener('input', validatePasswordMatch);
+
+// Form submission
+const registerForm = document.getElementById('registerForm');
+const errorDiv = document.getElementById('errorMessage');
+const errorText = document.getElementById('errorText');
+const successDiv = document.getElementById('successMessage');
+const successText = document.getElementById('successText');
+const submitBtn = document.getElementById('submitBtn');
+const submitSpinner = document.getElementById('submitSpinner');
+const submitText = document.getElementById('submitText');
+
+registerForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Hide previous messages
+    errorDiv.classList.add('d-none');
+    successDiv.classList.add('d-none');
+    
+    // Validate form
+    if (!registerForm.checkValidity()) {
+        registerForm.classList.add('was-validated');
+        return;
+    }
+    
+    const password = passwordInput.value;
+    const confirmPassword = confirmPasswordInput.value;
+    
+    // Client-side password match validation
+    if (password !== confirmPassword) {
+        showError('Passwords do not match. Please ensure both password fields are identical.');
+        confirmPasswordInput.classList.add('is-invalid');
+        return;
+    }
+    
+    // Disable submit button and show loading
+    submitBtn.disabled = true;
+    submitSpinner.classList.remove('d-none');
+    submitText.textContent = 'Registering...';
+    
+    const formData = new FormData(registerForm);
+    const data = {
+        username: formData.get('username').trim(),
+        password: password
+    };
+    
+    // Validate empty fields
+    if (!data.username || !data.password) {
+        showError('Please fill in all fields.');
+        resetSubmitButton();
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            successText.textContent = 'Registration successful! Redirecting to login...';
+            successDiv.classList.remove('d-none');
+            
+            setTimeout(() => {
+                window.location.href = '/login?message=Registration successful. Please wait for admin activation.';
+            }, 2000);
+        } else {
+            let errorMessage = 'Registration failed. Please try again.';
+            
+            if (result.detail) {
+                if (result.detail.includes('already registered') || result.detail.includes('exists')) {
+                    errorMessage = 'This username is already taken. Please choose a different username.';
+                    usernameInput.classList.add('is-invalid');
+                } else if (result.detail.includes('validation')) {
+                    errorMessage = 'Invalid input. Please check your information and try again.';
+                } else {
+                    errorMessage = result.detail;
+                }
+            }
+            
+            showError(errorMessage);
+            resetSubmitButton();
+        }
+    } catch (error) {
+        console.error('Registration error:', error);
+        showError('Network error. Please check your connection and try again.');
+        resetSubmitButton();
+    }
+});
+
+function showError(message) {
+    errorText.textContent = message;
+    errorDiv.classList.remove('d-none');
+    errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetSubmitButton() {
+    submitBtn.disabled = false;
+    submitSpinner.classList.add('d-none');
+    submitText.textContent = 'Register';
+}
+
+// Clear errors on input
+const usernameInput = document.getElementById('username');
+usernameInput.addEventListener('input', function() {
+    if (errorDiv.classList.contains('d-none') === false) {
+        errorDiv.classList.add('d-none');
+    }
+    if (this.classList.contains('is-invalid')) {
+        this.classList.remove('is-invalid');
+    }
+});
+
+passwordInput.addEventListener('input', function() {
+    if (errorDiv.classList.contains('d-none') === false) {
+        errorDiv.classList.add('d-none');
+    }
+});
+
+confirmPasswordInput.addEventListener('input', function() {
+    if (errorDiv.classList.contains('d-none') === false) {
+        errorDiv.classList.add('d-none');
+    }
+});
+</script>
+
+<style>
+.input-group-text {
+    background-color: #f8f9fa;
+    border-right: none;
+}
+
+.input-group .form-control {
+    border-left: none;
+}
+
+.input-group .form-control:focus {
+    border-left: 1px solid #86b7fe;
+    box-shadow: none;
+}
+
+.input-group .form-control:focus + .input-group-text,
+.input-group .form-control:focus ~ .input-group-text {
+    border-color: #86b7fe;
+}
+
+#togglePassword, #toggleConfirmPassword {
+    border-left: none;
+    cursor: pointer;
+}
+
+#togglePassword:hover, #toggleConfirmPassword:hover {
+    background-color: #e9ecef;
+}
+
+.alert {
+    border-left: 4px solid;
+}
+
+.alert-danger {
+    border-left-color: #dc3545;
+}
+
+.alert-success {
+    border-left-color: #198754;
+}
+
+.alert-info {
+    border-left-color: #0dcaf0;
+}
+
+.password-strength {
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,122 @@
+services:
+  # PostgreSQL for application database
+  postgres:
+    image: postgres:16-alpine
+    container_name: cognito-postgres
+    environment:
+      POSTGRES_USER: cognito
+      POSTGRES_PASSWORD: cognito_password
+      POSTGRES_DB: cognito
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cognito"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cognito-network
+
+  # PostgreSQL for Agno state database (with pgvector)
+  agno-postgres:
+    image: agnohq/pgvector:16
+    container_name: cognito-agno-postgres
+    environment:
+      POSTGRES_DB: ai
+      POSTGRES_USER: ai
+      POSTGRES_PASSWORD: ai
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5532:5432"
+    volumes:
+      - agno_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cognito-network
+
+  # Memgraph for knowledge graph storage
+  memgraph:
+    image: memgraph/memgraph:latest
+    container_name: cognito-memgraph
+    ports:
+      - "7687:7687"
+      - "7444:7444"
+    volumes:
+      - memgraph_data:/var/lib/memgraph
+    healthcheck:
+      test: ["CMD", "mg_client", "--host", "localhost", "--port", "7687", "--execute", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cognito-network
+
+  # FastAPI application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cognito-app
+    environment:
+      # LLM Configuration
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      
+      # Database Configuration
+      DB_PROVIDER: postgresql
+      DB_URL: postgresql://cognito:cognito_password@postgres:5432/cognito
+      
+      # Graph and Vector Store
+      GRAPH_DATABASE_PROVIDER: ${GRAPH_DATABASE_PROVIDER:-memgraph}
+      VECTOR_DB_PROVIDER: ${VECTOR_DB_PROVIDER:-lancedb}
+      
+      # Agno Database
+      AGNO_DB_URL: postgresql+psycopg://ai:ai@agno-postgres:5432/ai
+      
+      # Cognee Configuration
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
+      ALLOW_HTTP_REQUESTS: ${ALLOW_HTTP_REQUESTS:-true}
+      
+      # JWT Configuration
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      
+      # Admin User
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      
+      # Environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/static/uploads:/app/app/static/uploads
+      - lancedb_data:/app/.lancedb
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agno-postgres:
+        condition: service_healthy
+      memgraph:
+        condition: service_started
+    networks:
+      - cognito-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  agno_postgres_data:
+  memgraph_data:
+  lancedb_data:
+
+networks:
+  cognito-network:
+    driver: bridge

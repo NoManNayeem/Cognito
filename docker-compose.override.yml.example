@@ -1,0 +1,18 @@
+# Example override file for local development
+# Copy this to docker-compose.override.yml and customize as needed
+# docker-compose.override.yml is automatically loaded by docker-compose
+
+version: '3.8'
+
+services:
+  app:
+    environment:
+      # Override with your actual LLM API key
+      LLM_API_KEY: your-actual-api-key-here
+      SECRET_KEY: your-production-secret-key-here
+      ADMIN_PASSWORD: your-secure-admin-password
+    volumes:
+      # Mount source code for development (hot reload)
+      - .:/app
+      - ./app/static/uploads:/app/app/static/uploads
+      - lancedb_data:/app/.lancedb

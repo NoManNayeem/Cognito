@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Cognito{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chat-container {
+        height: calc(100vh - 200px);
+        display: flex;
+        flex-direction: column;
+    }
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background-color: #f8f9fa;
+    }
+    .message {
+        margin-bottom: 15px;
+        padding: 10px 15px;
+        border-radius: 10px;
+        max-width: 70%;
+    }
+    .message.user {
+        background-color: #007bff;
+        color: white;
+        margin-left: auto;
+        text-align: right;
+    }
+    .message.assistant {
+        background-color: #e9ecef;
+        color: #333;
+    }
+    .chat-input-area {
+        padding: 20px;
+        background-color: white;
+        border-top: 1px solid #dee2e6;
+    }
+    .loading {
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    {% if not is_active %}
+    <div class="alert alert-warning" role="alert">
+        <strong>Account Inactive:</strong> Please ask admin to activate account to access features.
+    </div>
+    {% endif %}
+    
+    <div class="card chat-container">
+        <div class="card-header">
+            <h4>Chat Interface</h4>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <!-- Messages will be appended here -->
+        </div>
+        <div class="chat-input-area">
+            <form id="chatForm" {% if not is_active %}onsubmit="return false;"{% endif %}>
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="messageInput" 
+                        placeholder="Type your message..." 
+                        {% if not is_active %}disabled{% endif %}
+                        required
+                    >
+                    <button 
+                        class="btn btn-primary" 
+                        type="submit" 
+                        id="sendButton"
+                        {% if not is_active %}disabled{% endif %}
+                    >
+                        Send
+                    </button>
+                </div>
+            </form>
+            <div class="loading mt-2" id="loadingIndicator">
+                <small class="text-muted">Thinking...</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/chat.js"></script>
+<script>
+    // Initialize chat with user info
+    const isActive = {{ 'true' if is_active else 'false' }};
+    if (isActive) {
+        initChat();
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Cognito{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="text-center mb-0">Login</h3>
+                </div>
+                <div class="card-body p-4">
+                    <!-- Error Message -->
+                    <div id="errorMessage" class="alert alert-danger d-none" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <span id="errorText"></span>
+                    </div>
+                    
+                    <!-- Success Message -->
+                    <div id="successMessage" class="alert alert-success d-none" role="alert">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <span id="successText"></span>
+                    </div>
+                    
+                    <form id="loginForm" method="POST" action="/api/auth/login" novalidate>
+                        <div class="mb-3">
+                            <label for="username" class="form-label fw-semibold">Username</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-person-fill"></i>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="username" 
+                                    name="username" 
+                                    placeholder="Enter your username"
+                                    required
+                                    autocomplete="username"
+                                >
+                                <div class="invalid-feedback">
+                                    Please enter your username.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label fw-semibold">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-lock-fill"></i>
+                                </span>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    id="password" 
+                                    name="password" 
+                                    placeholder="Enter your password"
+                                    required
+                                    autocomplete="current-password"
+                                >
+                                <button 
+                                    class="btn btn-outline-secondary" 
+                                    type="button" 
+                                    id="togglePassword"
+                                    aria-label="Toggle password visibility"
+                                >
+                                    <i class="bi bi-eye" id="togglePasswordIcon"></i>
+                                </button>
+                                <div class="invalid-feedback">
+                                    Please enter your password.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                                <span class="spinner-border spinner-border-sm d-none me-2" id="submitSpinner" role="status" aria-hidden="true"></span>
+                                <span id="submitText">Login</span>
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div class="text-center">
+                        <p class="mb-0">Don't have an account? <a href="/register" class="text-decoration-none">Register here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Password toggle functionality
+const togglePassword = document.getElementById('togglePassword');
+const passwordInput = document.getElementById('password');
+const toggleIcon = document.getElementById('togglePasswordIcon');
+
+togglePassword.addEventListener('click', function() {
+    const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+    passwordInput.setAttribute('type', type);
+    
+    // Toggle icon
+    if (type === 'password') {
+        toggleIcon.classList.remove('bi-eye-slash');
+        toggleIcon.classList.add('bi-eye');
+    } else {
+        toggleIcon.classList.remove('bi-eye');
+        toggleIcon.classList.add('bi-eye-slash');
+    }
+});
+
+// Form submission
+const loginForm = document.getElementById('loginForm');
+const errorDiv = document.getElementById('errorMessage');
+const errorText = document.getElementById('errorText');
+const successDiv = document.getElementById('successMessage');
+const successText = document.getElementById('successText');
+const submitBtn = document.getElementById('submitBtn');
+const submitSpinner = document.getElementById('submitSpinner');
+const submitText = document.getElementById('submitText');
+
+loginForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Hide previous messages
+    errorDiv.classList.add('d-none');
+    successDiv.classList.add('d-none');
+    
+    // Validate form
+    if (!loginForm.checkValidity()) {
+        loginForm.classList.add('was-validated');
+        return;
+    }
+    
+    // Disable submit button and show loading
+    submitBtn.disabled = true;
+    submitSpinner.classList.remove('d-none');
+    submitText.textContent = 'Logging in...';
+    
+    const formData = new FormData(loginForm);
+    const data = {
+        username: formData.get('username').trim(),
+        password: formData.get('password')
+    };
+    
+    // Validate empty fields
+    if (!data.username || !data.password) {
+        showError('Please fill in all fields.');
+        resetSubmitButton();
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include', // Important for cookies
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Show success message
+            successText.textContent = 'Login successful! Redirecting...';
+            successDiv.classList.remove('d-none');
+            
+            // The cookie is set in the response headers
+            // Wait a moment for browser to process it, then redirect
+            // Using a simple delay is more reliable than verification
+            setTimeout(() => {
+                // Determine redirect target based on user scopes
+                if (result.user && result.user.scopes && result.user.scopes.includes('admin')) {
+                    window.location.href = '/dashboard';
+                } else {
+                    window.location.href = '/home';
+                }
+            }, 300);
+        } else {
+            // Show error with better messaging
+            let errorMessage = 'Login failed. Please try again.';
+            
+            if (result.detail) {
+                if (result.detail.includes('Incorrect') || result.detail.includes('password')) {
+                    errorMessage = 'Invalid username or password. Please check your credentials and try again.';
+                } else if (result.detail.includes('Not authenticated') || result.detail.includes('credentials')) {
+                    errorMessage = 'Authentication failed. Please try logging in again.';
+                } else {
+                    errorMessage = result.detail;
+                }
+            }
+            
+            showError(errorMessage);
+            resetSubmitButton();
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        showError('Network error. Please check your connection and try again.');
+        resetSubmitButton();
+    }
+});
+
+function showError(message) {
+    errorText.textContent = message;
+    errorDiv.classList.remove('d-none');
+    // Scroll to error
+    errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetSubmitButton() {
+    submitBtn.disabled = false;
+    submitSpinner.classList.add('d-none');
+    submitText.textContent = 'Login';
+}
+
+// Clear error on input
+document.getElementById('username').addEventListener('input', function() {
+    if (errorDiv.classList.contains('d-none') === false) {
+        errorDiv.classList.add('d-none');
+    }
+});
+
+document.getElementById('password').addEventListener('input', function() {
+    if (errorDiv.classList.contains('d-none') === false) {
+        errorDiv.classList.add('d-none');
+    }
+});
+</script>
+
+<style>
+.input-group-text {
+    background-color: #f8f9fa;
+    border-right: none;
+}
+
+.input-group .form-control {
+    border-left: none;
+}
+
+.input-group .form-control:focus {
+    border-left: 1px solid #86b7fe;
+    box-shadow: none;
+}
+
+.input-group .form-control:focus + .input-group-text,
+.input-group .form-control:focus ~ .input-group-text {
+    border-color: #86b7fe;
+}
+
+#togglePassword {
+    border-left: none;
+    cursor: pointer;
+}
+
+#togglePassword:hover {
+    background-color: #e9ecef;
+}
+
+.alert {
+    border-left: 4px solid;
+}
+
+.alert-danger {
+    border-left-color: #dc3545;
+}
+
+.alert-success {
+    border-left-color: #198754;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,31 @@
+[project]
+name = "cognito"
+version = "0.1.0"
+description = "Production-Ready Cognitive Memory Application with FastAPI, Cognee, and Agno"
+requires-python = ">=3.12"
+dependencies = [
+    "cognee[ollama]",
+    "agno[all]",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "sqlalchemy",
+    "alembic",
+    "passlib[bcrypt]",
+    "bcrypt<4.1.0",  # Pin bcrypt to compatible version with passlib (4.1.0+ removed __about__)
+    "python-jose[cryptography]",
+    "aiofiles",
+    "python-dotenv",
+    "jinja2",
+    "psycopg2-binary",
+    "python-docx",
+    "pydantic-settings",
+    "asyncpg",  # Required for AsyncPostgresDb
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
