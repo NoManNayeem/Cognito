@@ -17,8 +17,10 @@ def get_current_user(
     logger = logging.getLogger(__name__)
     
     token = request.cookies.get("access_token")
+    print(f"DEBUG AUTH: token found: {token is not None}")
     
     if not token:
+        print(f"DEBUG AUTH: No access_token cookie found. Cookies keys: {list(request.cookies.keys())}")
         logger.error(f"No access_token cookie found in request. Available cookies: {list(request.cookies.keys())}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -26,16 +28,19 @@ def get_current_user(
         )
     
     payload = decode_access_token(token)
+    print(f"DEBUG AUTH: payload decoded: {payload is not None}")
     
     if payload is None:
         # Token is invalid - could be expired, malformed, or wrong secret key
+        print("DEBUG AUTH: JWT token decode failed")
         logger.error("JWT token decode failed - token may be expired or invalid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
     
-    user_id: Optional[int] = payload.get("sub")
+    user_id = payload.get("sub")
+    print(f"DEBUG AUTH: user_id from sub: {user_id}")
     if user_id is None:
         logger.error(f"JWT payload missing 'sub' claim: {payload}")
         raise HTTPException(

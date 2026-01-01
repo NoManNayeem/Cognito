@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cognito"]
+      test: [ "CMD-SHELL", "pg_isready -U cognito" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -33,7 +33,7 @@ services:
     volumes:
       - agno_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ai"]
+      test: [ "CMD-SHELL", "pg_isready -U ai" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,7 +50,7 @@ services:
     volumes:
       - memgraph_data:/var/lib/memgraph
     healthcheck:
-      test: ["CMD", "mg_client", "--host", "localhost", "--port", "7687", "--execute", "RETURN 1"]
+      test: [ "CMD", "mg_client", "--host", "localhost", "--port", "7687", "--execute", "RETURN 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,40 +64,42 @@ services:
       dockerfile: Dockerfile
     container_name: cognito-app
     environment:
+      PYTHONUNBUFFERED: 1
       # LLM Configuration
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      
+
       # Database Configuration
       DB_PROVIDER: postgresql
       DB_URL: postgresql://cognito:cognito_password@postgres:5432/cognito
-      
+
       # Graph and Vector Store
       GRAPH_DATABASE_PROVIDER: ${GRAPH_DATABASE_PROVIDER:-memgraph}
       VECTOR_DB_PROVIDER: ${VECTOR_DB_PROVIDER:-lancedb}
-      
+
       # Agno Database
       AGNO_DB_URL: postgresql+psycopg://ai:ai@agno-postgres:5432/ai
-      
+
       # Cognee Configuration
       REQUIRE_AUTH: ${REQUIRE_AUTH:-true}
       ALLOW_HTTP_REQUESTS: ${ALLOW_HTTP_REQUESTS:-true}
-      
+
       # JWT Configuration
       SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-      
+
       # Admin User
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
-      
+
       # Environment
       ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
       - "8000:8000"
     volumes:
+      - ./app:/app/app
       - ./app/static/uploads:/app/app/static/uploads
       - lancedb_data:/app/.lancedb
     depends_on:
@@ -116,6 +118,7 @@ volumes:
   agno_postgres_data:
   memgraph_data:
   lancedb_data:
+
 
 networks:
   cognito-network:
