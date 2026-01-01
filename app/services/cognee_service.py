@@ -1,8 +1,13 @@
 """Cognee service for knowledge graph management."""
 import os
 import asyncio
+import logging
 from typing import Optional, List, Dict, Any
 from app.config import settings
+from app.utils.file_handler import get_file_preview as get_local_file_preview
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Try to import Cognee - handle different possible import paths
 try:
@@ -105,6 +110,7 @@ class CogneeService:
             )
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error adding file: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
     
     async def add_url(self, dataset_name: str, url: str) -> Dict[str, Any]:
@@ -116,6 +122,7 @@ class CogneeService:
             )
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error adding URL: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
     
     async def cognify(self, dataset_name: str) -> Dict[str, Any]:
@@ -127,6 +134,7 @@ class CogneeService:
             result = await self.cognee.cognify(dataset_names=[dataset_name])
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error cognifying: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
     
     async def memify(self, dataset_name: str) -> Dict[str, Any]:
@@ -135,6 +143,7 @@ class CogneeService:
             result = await self.cognee.memify(dataset_names=[dataset_name])
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error memifying: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
     
     async def get_dataset_data(self, dataset_name: str) -> Dict[str, Any]:
@@ -143,7 +152,112 @@ class CogneeService:
             result = await self.cognee.get_dataset_data(dataset_name=dataset_name)
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error getting dataset data: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
+
+    async def list_files(self, dataset_name: str = "default") -> List[Dict[str, str]]:
+        """List all files in a dataset."""
+        result = await self.get_dataset_data(dataset_name)
+        
+        if result["status"] == "error":
+            logger.error(f"Failed to list files: {result.get('error')}")
+            return []
+        
+        files = []
+        if result.get("data"):
+            dataset_data = result["data"]
+            if isinstance(dataset_data, list):
+                for idx, item in enumerate(dataset_data):
+                    # Check if item is a file
+                    if isinstance(item, dict):
+                        if "file_path" in item or "path" in item or "filename" in item:
+                            files.append({
+                                "id": item.get("id", str(idx)),
+                                "filename": item.get("filename") or item.get("path") or item.get("file_path", "Unknown"),
+                                "type": "file"
+                            })
+                    elif hasattr(item, "__fspath__"):
+                        # Path object
+                        file_path = str(item)
+                        files.append({
+                            "id": str(idx),
+                            "filename": os.path.basename(file_path),
+                            "type": "file"
+                        })
+                    elif isinstance(item, str) and not item.startswith("http"):
+                        # File path string (not URL)
+                        files.append({
+                            "id": str(idx),
+                            "filename": os.path.basename(item),
+                            "type": "file"
+                        })
+        return files
+
+    async def list_urls(self, dataset_name: str = "default") -> List[Dict[str, str]]:
+        """List all URLs in a dataset."""
+        result = await self.get_dataset_data(dataset_name)
+        
+        if result["status"] == "error":
+            logger.error(f"Failed to list URLs: {result.get('error')}")
+            return []
+        
+        urls = []
+        if result.get("data"):
+            dataset_data = result["data"]
+            if isinstance(dataset_data, list):
+                for idx, item in enumerate(dataset_data):
+                    # Check if item is a URL
+                    if isinstance(item, dict):
+                        if "url" in item or "link" in item:
+                            urls.append({
+                                "id": item.get("id", str(idx)),
+                                "url": item.get("url") or item.get("link", "Unknown"),
+                                "type": "url"
+                            })
+                        elif isinstance(item.get("data"), str) and item.get("data", "").startswith("http"):
+                            urls.append({
+                                "id": item.get("id", str(idx)),
+                                "url": item["data"],
+                                "type": "url"
+                            })
+                    elif isinstance(item, str) and item.startswith("http"):
+                        # URL string
+                        urls.append({
+                            "id": str(idx),
+                            "url": item,
+                            "type": "url"
+                        })
+        return urls
+
+    async def get_file_preview(self, file_id: str, dataset_name: str = "default") -> Optional[str]:
+        """Get file preview content."""
+        result = await self.get_dataset_data(dataset_name)
+        
+        if result["status"] == "success" and result.get("data"):
+            dataset_data = result["data"]
+            if isinstance(dataset_data, list):
+                # Find the file by ID
+                for item in dataset_data:
+                    item_id = str(item.get("id", "")) if isinstance(item, dict) else str(item)
+                    if item_id == file_id:
+                        # Try to get file path from item
+                        if isinstance(item, dict):
+                            file_path = item.get("file_path") or item.get("path") or item.get("filename", "")
+                            if file_path and os.path.exists(file_path):
+                                return get_local_file_preview(file_path)
+                            # If file path not found, try to get content from Cognee
+                            content = item.get("content") or item.get("text", "")
+                            if content:
+                                return content[:1000] + ("..." if len(content) > 1000 else "")
+        
+        # Fallback: Check if file exists in uploads directory
+        uploads_dir = "app/static/uploads"
+        file_path = os.path.join(uploads_dir, file_id)
+        
+        if os.path.exists(file_path):
+            return get_local_file_preview(file_path)
+            
+        return None
     
     async def delete_data(self, dataset_name: str, data_id: str) -> Dict[str, Any]:
         """Delete data from a dataset."""
@@ -154,6 +268,7 @@ class CogneeService:
             result = await self.cognee.delete_data(dataset_name=dataset_name, data_id=data_id)
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error deleting data: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
     
     async def search(
@@ -191,6 +306,7 @@ class CogneeService:
                 )
             return {"status": "success", "data": result}
         except Exception as e:
+            logger.error(f"Error searching: {str(e)}", exc_info=True)
             return {"status": "error", "error": str(e)}
 
 
@@ -210,6 +326,6 @@ def get_cognee_service() -> CogneeService:
             _cognee_service = CogneeService()
         except Exception as e:
             # Log error but don't fail silently
-            print(f"Warning: Failed to initialize Cognee service: {str(e)}")
+            logger.warning(f"Failed to initialize Cognee service: {str(e)}")
             raise
     return _cognee_service

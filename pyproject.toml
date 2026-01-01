@@ -21,6 +21,7 @@ dependencies = [
     "python-docx",
     "pydantic-settings",
     "asyncpg",  # Required for AsyncPostgresDb
+    "tiktoken>=0.7.0",
 ]
 
 [tool.hatch.build.targets.wheel]

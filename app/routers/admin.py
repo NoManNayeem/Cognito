@@ -13,8 +13,11 @@ from app.services.agno_service import get_agno_service
 from app.utils.file_handler import validate_file, save_uploaded_file, get_file_preview
 import os
 import aiofiles
-import asyncpg
+import logging
 from app.config import settings
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class URLRequest(BaseModel):
@@ -34,52 +37,16 @@ async def get_stats(
     # Count users
     total_users = db.query(User).count()
     
-    # Count conversations from Agno database
+    # Count conversations from Agno database via service
     total_conversations = 0
     try:
-        # Extract connection details from AGNO_DB_URL
-        # Format: postgresql+psycopg://user:pass@host:port/dbname
-        db_url = settings.agno_db_url
-        # Remove postgresql+psycopg:// or postgresql:// prefix
-        if "://" in db_url:
-            db_url = db_url.split("://", 1)[1]
-        
-        # Parse connection string
-        if "@" in db_url:
-            auth, rest = db_url.split("@", 1)
-            user, password = auth.split(":", 1) if ":" in auth else (auth, "")
-            if "/" in rest:
-                host_port, dbname = rest.split("/", 1)
-                host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
-            else:
-                host, port = rest.split(":") if ":" in rest else (rest, "5432")
-                dbname = ""
-        else:
-            user, password, host, port, dbname = "", "", "localhost", "5432", ""
-        
-        # Connect to Agno database and count sessions
-        conn = await asyncpg.connect(
-            user=user,
-            password=password,
-            host=host,
-            port=int(port),
-            database=dbname
-        )
-        try:
-            # Check if agno_sessions table exists
-            table_exists = await conn.fetchval(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'agno_sessions')"
-            )
-            if table_exists:
-                total_conversations = await conn.fetchval("SELECT COUNT(*) FROM agno_sessions")
-        finally:
-            await conn.close()
+        agno_service = get_agno_service()
+        total_conversations = await agno_service.get_conversation_stats()
     except Exception as e:
-        # If counting fails, log but don't fail the request
-        print(f"Warning: Failed to count conversations: {str(e)}")
+        logger.warning(f"Failed to count conversations: {str(e)}")
         total_conversations = 0
     
-    # Count files and URLs from Cognee datasets
+    # Count files and URLs from Cognee datasets via service
     total_files = 0
     total_urls = 0
     try:
@@ -87,33 +54,19 @@ async def get_stats(
             cognee_service = get_cognee_service()
         except Exception as e:
             # If Cognee service is not available, skip file/URL counting
-            print(f"Warning: Cognee service unavailable: {str(e)}")
+            logger.warning(f"Cognee service unavailable: {str(e)}")
             cognee_service = None
         
         if cognee_service:
-            result = await cognee_service.get_dataset_data("default")
-            if result["status"] == "success" and result.get("data"):
-                dataset_data = result["data"]
-                # Parse dataset data - Cognee returns a list of data items
-                if isinstance(dataset_data, list):
-                    for item in dataset_data:
-                        # Check if item is a file (has file path or is Path object)
-                        if isinstance(item, dict):
-                            # Check for file indicators
-                            if "file_path" in item or "path" in item or "filename" in item:
-                                total_files += 1
-                            # Check for URL indicators
-                            elif "url" in item or "link" in item or (isinstance(item.get("data"), str) and item.get("data", "").startswith("http")):
-                                total_urls += 1
-                        elif hasattr(item, "__fspath__") or str(item).startswith("/"):
-                            # Path object or file path string
-                            total_files += 1
-                        elif isinstance(item, str) and item.startswith("http"):
-                            # URL string
-                            total_urls += 1
+            # use list_files and list_urls which do the parsing for us
+            files = await cognee_service.list_files("default")
+            urls = await cognee_service.list_urls("default")
+            total_files = len(files)
+            total_urls = len(urls)
+            
     except Exception as e:
         # If counting fails, log but don't fail the request
-        print(f"Warning: Failed to count files/URLs: {str(e)}")
+        logger.warning(f"Failed to count files/URLs: {str(e)}")
     
     return StatsResponse(
         total_users=total_users,
@@ -178,44 +131,7 @@ async def list_files(
             detail=f"Cognee service unavailable: {str(e)}"
         )
     
-    result = await cognee_service.get_dataset_data(dataset_name)
-    
-    if result["status"] == "error":
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get dataset data: {result.get('error', 'Unknown error')}"
-        )
-    
-    # Filter files from dataset data
-    files = []
-    if result.get("data"):
-        dataset_data = result["data"]
-        if isinstance(dataset_data, list):
-            for idx, item in enumerate(dataset_data):
-                # Check if item is a file
-                if isinstance(item, dict):
-                    if "file_path" in item or "path" in item or "filename" in item:
-                        files.append({
-                            "id": item.get("id", str(idx)),
-                            "filename": item.get("filename") or item.get("path") or item.get("file_path", "Unknown"),
-                            "type": "file"
-                        })
-                elif hasattr(item, "__fspath__"):
-                    # Path object
-                    file_path = str(item)
-                    files.append({
-                        "id": str(idx),
-                        "filename": os.path.basename(file_path),
-                        "type": "file"
-                    })
-                elif isinstance(item, str) and not item.startswith("http"):
-                    # File path string (not URL)
-                    files.append({
-                        "id": str(idx),
-                        "filename": os.path.basename(item),
-                        "type": "file"
-                    })
-    
+    files = await cognee_service.list_files(dataset_name)
     return {"files": files}
 
 
@@ -232,36 +148,32 @@ async def preview_file(
         except Exception as e:
             # Fallback to local file if Cognee is unavailable
             cognee_service = None
+            logger.warning(f"Cognee service unavailable for preview: {str(e)}")
         
-        result = None
+        preview = None
         if cognee_service:
-            result = await cognee_service.get_dataset_data(dataset_name)
+            preview = await cognee_service.get_file_preview(file_id, dataset_name)
         
-        if result and result["status"] == "success" and result.get("data"):
-            dataset_data = result["data"]
-            if isinstance(dataset_data, list):
-                # Find the file by ID
-                for item in dataset_data:
-                    item_id = str(item.get("id", "")) if isinstance(item, dict) else str(item)
-                    if item_id == file_id:
-                        # Try to get file path from item
-                        if isinstance(item, dict):
-                            file_path = item.get("file_path") or item.get("path") or item.get("filename", "")
-                            if file_path and os.path.exists(file_path):
-                                preview = get_file_preview(file_path)
-                                return {"preview": preview}
-                            # If file path not found, try to get content from Cognee
-                            content = item.get("content") or item.get("text", "")
-                            if content:
-                                return {"preview": content[:1000] + ("..." if len(content) > 1000 else "")}
+        # Fallback if service returned None (and service was available but couldn't find/read it)
+        # However, the service method already handles the local fallback logic too! 
+        # So if it returns None, it really is not found.
+        # But wait, if cognee_service was None (exception), we need manual fallback here?
+        # The service method uses imports that might fail if we can't get the service instance?
+        # Actually `get_cognee_service` might raise.
         
-        # Fallback: Check if file exists in uploads directory
-        uploads_dir = "app/static/uploads"
-        file_path = os.path.join(uploads_dir, file_id)
-        
-        if os.path.exists(file_path):
-            preview = get_file_preview(file_path)
+        if preview:
             return {"preview": preview}
+            
+        # If we are here, either service failed or returned None.
+        # If service failed (cognee_service is None), we should try manual fallback.
+        if cognee_service is None:
+             # Fallback: Check if file exists in uploads directory
+            uploads_dir = "app/static/uploads"
+            file_path = os.path.join(uploads_dir, file_id)
+            if os.path.exists(file_path):
+                 # We need to import get_file_preview from utils again locally or use the one imported at top
+                 from app.utils.file_handler import get_file_preview as get_local_preview
+                 return {"preview": get_local_preview(file_path)}
         
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -270,6 +182,7 @@ async def preview_file(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error previewing file: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error previewing file: {str(e)}"
@@ -359,43 +272,15 @@ async def list_urls(
     current_user: User = Depends(require_scope("admin"))
 ):
     """List all URLs in a dataset."""
-    cognee_service = get_cognee_service()
-    result = await cognee_service.get_dataset_data(dataset_name)
-    
-    if result["status"] == "error":
+    try:
+        cognee_service = get_cognee_service()
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get dataset data: {result.get('error', 'Unknown error')}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Cognee service unavailable: {str(e)}"
         )
-    
-    # Filter URLs from dataset data
-    urls = []
-    if result.get("data"):
-        dataset_data = result["data"]
-        if isinstance(dataset_data, list):
-            for idx, item in enumerate(dataset_data):
-                # Check if item is a URL
-                if isinstance(item, dict):
-                    if "url" in item or "link" in item:
-                        urls.append({
-                            "id": item.get("id", str(idx)),
-                            "url": item.get("url") or item.get("link", "Unknown"),
-                            "type": "url"
-                        })
-                    elif isinstance(item.get("data"), str) and item.get("data", "").startswith("http"):
-                        urls.append({
-                            "id": item.get("id", str(idx)),
-                            "url": item["data"],
-                            "type": "url"
-                        })
-                elif isinstance(item, str) and item.startswith("http"):
-                    # URL string
-                    urls.append({
-                        "id": str(idx),
-                        "url": item,
-                        "type": "url"
-                    })
-    
+        
+    urls = await cognee_service.list_urls(dataset_name)
     return {"urls": urls}
 
 
@@ -414,6 +299,9 @@ async def preview_url(
                 detail=f"Cognee service unavailable: {str(e)}"
             )
         
+        # We can implement get_url_preview in service too, but for now we'll do it here or add it to service?
+        # The plan said "get_preview" in service, but I implemented `get_file_preview`.
+        # Reuse logic:
         result = await cognee_service.get_dataset_data("default")
         
         if result["status"] == "success" and result.get("data"):
@@ -435,6 +323,7 @@ async def preview_url(
         
         return {"preview": "URL not found in dataset"}
     except Exception as e:
+        logger.error(f"Error fetching URL preview: {str(e)}", exc_info=True)
         return {"preview": f"Error fetching URL preview: {str(e)}"}
 
 
@@ -445,7 +334,14 @@ async def delete_url(
     current_user: User = Depends(require_scope("admin"))
 ):
     """Delete a URL from dataset."""
-    cognee_service = get_cognee_service()
+    try:
+        cognee_service = get_cognee_service()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Cognee service unavailable: {str(e)}"
+        )
+
     result = await cognee_service.delete_data(dataset_name, url_id)
     
     if result["status"] == "error":

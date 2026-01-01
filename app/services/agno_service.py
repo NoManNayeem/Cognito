@@ -1,8 +1,13 @@
 """Agno service for agent initialization and management."""
 import uuid
+import logging
+import asyncpg
 from typing import Optional
 from app.config import settings
 from app.services.knowledge_service import get_knowledge_service
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Try to import Agno components
 try:
@@ -114,7 +119,7 @@ class AgnoService:
         Returns:
             Dictionary with response and session_id
         """
-        # Create agent instance (fast instantiation ~3μs)
+        # Create agent instance (fast instantiation ~3us)
         agent = self.create_agent(session_id=session_id, user_id=user_id)
         
         # Get the actual session_id from agent
@@ -140,10 +145,130 @@ class AgnoService:
                 "session_id": actual_session_id
             }
         except Exception as e:
+            logger.error(f"Error processing message: {str(e)}", exc_info=True)
             return {
                 "response": f"Error processing message: {str(e)}",
                 "session_id": actual_session_id
             }
+
+    async def get_conversation_stats(self) -> int:
+        """Count total conversations/sessions in the Agno database."""
+        try:
+            # Extract connection details from AGNO_DB_URL
+            db_url = settings.agno_db_url
+            
+            # Remove protocol
+            if "://" in db_url:
+                db_url = db_url.split("://", 1)[1]
+            
+            # Parse connection string
+            if "@" in db_url:
+                auth, rest = db_url.split("@", 1)
+                user, password = auth.split(":", 1) if ":" in auth else (auth, "")
+                if "/" in rest:
+                    host_port, dbname = rest.split("/", 1)
+                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+                else:
+                    host, port = rest.split(":") if ":" in rest else (rest, "5432")
+                    dbname = ""
+            else:
+                user, password, host, port, dbname = "", "", "localhost", "5432", ""
+            
+            # Connect to Agno database
+            conn = await asyncpg.connect(
+                user=user,
+                password=password,
+                host=host,
+                port=int(port),
+                database=dbname
+            )
+            
+            try:
+                # Check if agno_sessions table exists
+                table_exists = await conn.fetchval(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'agno_sessions')"
+                )
+                if table_exists:
+                    return await conn.fetchval("SELECT COUNT(*) FROM agno_sessions")
+                return 0
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to count conversations: {str(e)}")
+            return 0
+
+
+    async def get_user_sessions(self, user_id: int, limit: int = 50) -> list:
+        """List sessions for a specific user."""
+        try:
+            # Extract connection details from AGNO_DB_URL
+            db_url = settings.agno_db_url
+            
+            # Remove protocol
+            if "://" in db_url:
+                db_url = db_url.split("://", 1)[1]
+            
+            # Parse connection string
+            if "@" in db_url:
+                auth, rest = db_url.split("@", 1)
+                user, password = auth.split(":", 1) if ":" in auth else (auth, "")
+                if "/" in rest:
+                    host_port, dbname = rest.split("/", 1)
+                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+                else:
+                    host, port = rest.split(":") if ":" in rest else (rest, "5432")
+                    dbname = ""
+            else:
+                user, password, host, port, dbname = "", "", "localhost", "5432", ""
+            
+            # Connect to Agno database
+            conn = await asyncpg.connect(
+                user=user,
+                password=password,
+                host=host,
+                port=int(port),
+                database=dbname
+            )
+            
+            try:
+                # Check if agno_sessions table exists
+                table_exists = await conn.fetchval(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'agno_sessions')"
+                )
+                
+                if not table_exists:
+                    return []
+                
+                # Query sessions for this user
+                # Note: Agno stores user_id as string in session_data or metadata
+                user_id_str = str(user_id)
+                rows = await conn.fetch(
+                    """
+                    SELECT session_id, created_at, updated_at, session_data, metadata
+                    FROM agno_sessions
+                    WHERE user_id = $1 OR session_data->>'user_id' = $2 OR metadata->>'user_id' = $2
+                    ORDER BY updated_at DESC
+                    LIMIT $3
+                    """,
+                    user_id_str,
+                    user_id_str,
+                    limit
+                )
+                
+                sessions = []
+                for row in rows:
+                    sessions.append({
+                        "session_id": row["session_id"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                    })
+                
+                return sessions
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to list sessions: {str(e)}")
+            return []
 
 
 # Global instance
@@ -162,6 +287,6 @@ def get_agno_service() -> AgnoService:
             _agno_service = AgnoService()
         except Exception as e:
             # Log error but don't fail silently
-            print(f"Warning: Failed to initialize Agno service: {str(e)}")
+            logger.warning(f"Failed to initialize Agno service: {str(e)}")
             raise
     return _agno_service
