@@ -19,7 +19,7 @@ def get_current_user(
     token = request.cookies.get("access_token")
     
     if not token:
-        logger.debug(f"No access_token cookie found. Available cookies: {list(request.cookies.keys())}")
+        logger.error(f"No access_token cookie found in request. Available cookies: {list(request.cookies.keys())}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -29,7 +29,7 @@ def get_current_user(
     
     if payload is None:
         # Token is invalid - could be expired, malformed, or wrong secret key
-        logger.warning("JWT token decode failed - token may be expired or invalid")
+        logger.error("JWT token decode failed - token may be expired or invalid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
@@ -37,13 +37,25 @@ def get_current_user(
     
     user_id: Optional[int] = payload.get("sub")
     if user_id is None:
+        logger.error(f"JWT payload missing 'sub' claim: {payload}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
     
-    user = db.query(User).filter(User.id == user_id).first()
+    # Cast user_id to int to be safe (JWT subs are often strings)
+    try:
+        user_id_int = int(user_id)
+    except (ValueError, TypeError):
+        logger.error(f"JWT 'sub' claim is not a valid integer: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+    
+    user = db.query(User).filter(User.id == user_id_int).first()
     if user is None:
+        logger.error(f"User with ID {user_id_int} not found in database")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
